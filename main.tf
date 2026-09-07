@@ -97,8 +97,26 @@ resource "aws_route_table_association" "private_subnet_association_2" {
 
 resource "aws_key_pair" "bastion_key" {
   key_name = "bastion_key"
-  public_key = "SHA256:A0h0rKLrZHQQy7G289tffxD6dAAR6k+E4tASVX6LUos domiendev@domiendev-System-Product-Name"
+  public_key = file(pathexpand("~/.ssh/terraform-3tier.pub"))
 }
 
-
+resource "aws_security_group" "bastion_sg" {
+  vpc_id = aws_vpc.VPC1.id
+  tags = {
+    Name = "bastion_sg"
+  }
+}
  
+resource "aws_vpc_security_group_ingress_rule" "allow_ssh" {
+  security_group_id = aws_security_group.bastion_sg.id
+  cidr_ipv4 = var.my_ip
+  from_port = 22
+  ip_protocol = "tcp"
+  to_port = 22
+}
+
+resource "aws_vpc_security_group_egress_rule" "allow_all_traffic" {
+  security_group_id = aws_security_group.bastion_sg.id
+  cidr_ipv4 = "0.0.0.0/0"
+  ip_protocol = "-1"
+}
