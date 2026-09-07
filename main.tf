@@ -95,3 +95,10 @@ resource "aws_route_table_association" "private_subnet_association_2" {
   route_table_id = aws_route_table.private_route_table.id
 }
 
+resource "aws_key_pair" "bastion_key" {
+  key_name = "bastion_key"
+  public_key = "SHA256:A0h0rKLrZHQQy7G289tffxD6dAAR6k+E4tASVX6LUos domiendev@domiendev-System-Product-Name"
+}
+
+
+ 
