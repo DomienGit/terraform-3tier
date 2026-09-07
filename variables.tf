@@ -1,0 +1,23 @@
+variable "instance_name" {
+  description = "Value of the EC2 instance's Name tag."
+  type        = string
+  default     = "learn-terraform"
+}
+
+variable "instance_type" {
+  description = "The EC2 instance's type."
+  type        = string
+  default     = "t3.micro"
+}
+
+variable "region" {
+  description = "The region name"
+  type        = string
+  default     = "eu-central-1"
+}
+
+variable "vpc_cidr" {
+  description = "CIDR block for the VPC"
+  type        = string
+  default     = "10.0.0.0/16"
+}
