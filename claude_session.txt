@@ -1,0 +1,881 @@
+╭─── Claude Code v2.1.104 ─────────────────────────────────────────────────────╮
+│                                 │ Tips for getting started                   │
+│          Welcome back!          │ Run /init to create a CLAUDE.md file with… │
+│                                 │ ────────────────────────────────────────── │
+│             ▐▛███▜▌             │ Recent activity                            │
+│            ▝▜█████▛▘            │ No recent activity                         │
+│              ▘▘ ▝▝              │                                            │
+│                                 │                                            │
+│   glm-5.1 · API Usage Billing   │                                            │
+│   ~/Projects/Devops/projekty    │                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+❯ yo wez tu przeczytaj @AWS-3tier-java-app.md chcialbym zastosowac na tym       
+  przykladzie terrafrom w celu nauczenia sie go, daj mi jakies zadanie zeby     
+  nauczyc sie podstaw, na aws mam darmowe konto free tier                       
+  ⎿  Read AWS-3tier-java-app.md (21 lines)
+
+  Read 1 file (ctrl+o to expand)
+
+● Świetny pomysł — projekt 3-tier to idealny materiał na naukę Terraforma, bo
+  już wiesz, co ma powstać, więc możesz skupić się na jak. Sprawdzę jeszcze, co
+  masz zainstalowane.
+
+● Bash(terraform -version 2>&1 | head -3; echo "---"; aws --version 2>&1; echo
+      "---"; aws sts get-caller-identity 2>&1 | head -5)
+  ⎿  /bin/bash: line 1: terraform: command not found
+     ---
+     /bin/bash: line 1: aws: command not found
+     … +2 lines (ctrl+o to expand)
+
+● Nic z tego nie masz jeszcze zainstalowane — czyli zaczynamy od zera, idealnie.
+   Aktualizuję roadmapę (Terraform → uczę się) i daję ci zadanie.
+
+● Update(~/Projects/Devops/ROADMAP.md)
+  ⎿  Added 1 line, removed 1 line
+      29  - [~] AWS — w trakcie systematycznej nauki (podstawowe kursy AW
+          S ukończone)
+      30  - [~] AWS praktyka z projektu 3-tier: EC2, VPC (podsieci, IGW/N
+          AT, tablice routingu, Transit Gateway), NLB, Auto Scaling, RDS 
+          MySQL, S3, SSM, bastion, golden AMI
+      31  - [ ] AWS — do pogłębienia: IAM (role i polityki dogłębnie), La
+          mbda, koszty/billing
+      32 -- [ ] Terraform / infrastruktura jako kod                      
+      32 +- [~] Terraform / infrastruktura jako kod (nauka na przykładzie
+         + projektu 3-tier, od 2026-09-01)                               
+      33  - [ ] Podstawy bezpieczeństwa w chmurze
+      34  
+      35  ## Monitoring i obserwowalność
+
+● Plan nauki
+
+  Nie rzucamy się od razu na cały 3-tier (2×VPC + TGW + ASG to setki linii i
+  pełno płatnych zasobów). Zamiast tego budujemy tę samą architekturę etapami, 
+  od najmniejszego kawałka, a przy każdym etapie dochodzi nowy koncept
+  Terraforma:
+
+  1. Zadanie 1 (teraz): sieć — VPC, subnety, IGW, tablice routingu → podstawy: 
+  resource, variable, output, state, plan/apply/destroy
+  2. Security groups + bastion EC2 → data sources, user_data, key pair
+  3. RDS MySQL (free tier) → db_subnet_group, zależności między zasobami
+  4. S3 + IAM role + alarm CloudWatch → IAM w Terraform, enkle mechanizmy
+  5. ALB + Auto Scaling Group → launch template, najbardziej "zapętlony" 
+  fragment
+  6. Refaktor na moduły + remote state w S3 → to, co spotykasz w prawdziwych 
+  repo
+
+  Zadanie 1: fundament sieciowy 3-tier
+
+  Krok 0 — narzędzia (zanim dotkniesz Terraforma):
+  - Zainstaluj Terraform (hashicorp ma oficjalne repo APT dla Debiana/Ubuntu) i
+  AWS CLI v2
+  - aws configure — klucze z Twojego konta, region np. eu-central-1 (Frankfurt,
+  blisko i tani)
+
+  Krok 1 — katalog projektu. Załóż projekty/terraform-3tier/ z osobnym repo gita
+   (to będzie portfolio) i taką strukturą plików — nie jednym plikiem, od razu
+  ucz się porządku:
+
+  terraform-3tier/
+  ├── versions.tf    # provider aws + required_version
+  ├── variables.tf   # region, cidr VPC
+  ├── main.tf        # zasoby
+  ├── outputs.tf
+  └── .gitignore     # .terraform/ i terraform.tfstate*
+
+  Krok 2 — co ma powstać (miejska wersja sieci z Twojego projektu, bez drugiego
+  VPC i TGW):
+
+  - VPC 10.0.0.0/16 z tagami Name i Project
+  - 2 publiczne subnety (np. 10.0.1.0/24, 10.0.2.0/24) w dwóch różnych AZ
+  - 2 prywatne subnety (10.0.11.0/24, 10.0.12.0/24) też w dwóch AZ
+  - Internet Gateway + tablica routingu z trasą 0.0.0.0/0 → IGW, powiązana z
+  publicznymi subnetami
+  - Osobna tablica routingu dla prywatnych subniet (bez NAT Gateway — patrz
+  koszty), przypisana do nich
+
+  Wymagania "terraformowe":
+  - CIDR i region jako variables
+  - Outputs: vpc_id oraz lista ID publicznych subniet
+  - Bonus dla ambitnych: zamiast 4 kopiuj-wklej bloków subneta spróbuj for_each
+  — porównaj oba podejścia
+
+  Krok 3 — obowiązkowy workflow (dokładnie w tej kolejności, zawsze):
+
+  terraform init → fmt → validate → plan → apply → (sprawdź w konsoli AWS) →
+  destroy → (sprawdź, że zniknęło)
+
+  Przy plan przeczytaj cały output zanim powiesz yes — naucz się czytać, co
+  Terraform zamierza stworzyć. Definition of done: apply przechodzi, w konsoli
+  widzisz VPC z 4 subnetami i tablicami, destroy sprząta wszystko, a Ty umiesz
+  odpowiedzieć na pytania kontrolne poniżej.
+
+  Pytania kontrolne (odpowiesz mi na następnej sesji, jak na rozmowie)
+
+  1. Skąd Terraform wie, co już istnieje na AWS i co trzeba stworzyć? Co jest w
+  terraform.tfstate i dlaczego nie może wylądować na GitHubie?
+  2. Czym różni się plan od apply, i co się stanie, jak odpalisz apply drugi raz
+   bez żadnych zmian w kodzie?
+  3. Dlaczego w Twoim oryginalnym projekcie prywatne subnety miały trasę do NAT
+  Gateway, a tutaj celowo jej nie ma — co by się stało, gdyby EC2 w prywatnym
+  subnecie potrzebował ściągnąć pakiet z internetu?
+  4. Po co komu outputs, skoro wszystko widać w konsoli?
+
+  Koszty (ważne!)
+
+  - Zadanie 1 kosztuje 0 zł — VPC, subnety, IGW, tablice routingu są darmowe
+  - NAT Gateway (~$33/mies. + dane), NLB/ALB (~$16/mies.), Transit Gateway — NIE
+   są w free tier. W wersji naukowej je pomijamy lub będziesz je tworzyć na
+  krótko i od razu niszczyć
+  - Sprawdź w Billing Console, ile Ci zostało free tieru (12 mies. od założenia
+  konta — EC2 t3.micro i RDS db.t3.micro są w ramach 750h/mies.)
+  - Włącz alarmy budżetowe w AWS, jeśli jeszcze nie masz
+
+  Zasady gry
+
+  Kod piszesz sam — dokumentacja Terraforma (registry.terraform.io, provider
+  AWS) + dokumentacja AWS to twoje źródła, nie gotowce z poradników. Jak
+  utkniesz na 30 minut — wracasz z konkretnym błędem i rozmawiamy.
+
+  Zacznij od kroku 0 i struktury katalogu. Powodzenia!
+
+✻ Crunched for 1m 50s
+
+❯ powiedz mi jeszcze jak nie mam stworzonego repo na githubie a juz utowrzylem  
+  lokalne pliki to jak stworzyc repo i wrzucic tam te pliki                     
+
+● Bash(git --version 2>&1; gh --version 2>&1 | head -1)
+  ⎿  git version 2.43.0
+     /bin/bash: line 1: gh: command not found
+
+● Gita masz, gh (GitHub CLI) nie — pokażę obie drogi. Sytuacja "mam już pliki,
+  chcę repo" jest normalna, robi się to tak:
+
+  Opcja A: przez GitHub CLI (polecam, załatwiasz wszystko z terminala)
+
+  # 1. zainstaluj gh (oficjalne repo GitHub dla apt jest na ich stronie)
+  # 2. jednorazowa konfiguracja — otworzy przeglądarkę do zalogowania
+  gh auth login
+
+  # 3. w katalogu projektu:
+  cd projekty/terraform-3tier
+  git init
+  git add .
+  git commit -m "Initial commit: network setup for 3-tier project"
+  gh repo create terraform-3tier --public --source=. --push
+
+  gh repo create --source=. --push za jednym razem: tworzy repo na GitHubie,
+  dodaje je jako origin i wypycha.
+
+  Opcja B: klasycznie przez przeglądarkę
+
+  1. Na github.com: New repository → nazwa np. terraform-3tier → ** UWAGA: NIE
+  zaznaczaj** "Add a README / .gitignore / license" — repo ma być puste, inaczej
+   pierwszy push odbije się o konflikt (Twój lokalny commit vs. ich README)
+  2. W terminalu:
+
+  cd projekty/terraform-3tier
+  git init
+  git add .
+  git commit -m "Initial commit: network setup for 3-tier project"
+  git branch -M main
+  git remote add origin git@github.com:TWOJ_LOGIN/terraform-3tier.git
+  git push -u origin main
+
+  Przy git remote add adres z HTTPS (https://github.com/...) też działa, ale
+  wtedy przy każdym pushu pyta o hasło/token. SSH (git@github.com:...)
+  wygodniejsze na dłuższą metę — wymaga wygenerowania klucza i dodania go na
+  GitHubie.
+
+  Dwie pułapki konkretnie w Twoim przypadku
+
+  1. Upewnij się, że .gitignore istnieje ZANIM zrobisz git add . — inaczej
+  wrzucisz terraform.tfstate i katalog .terraform/ (setki MB). Po git add .
+  sprawdź jeszcze git status, czy nie dociągnęło się coś podejrzanego. State
+  file prędzej czy później zawiera sensitive dane, a z publicznego repo nie da
+  się nic trwale usunąć — GitHub trzyma historię commitów.
+  2. Jak już omyłkowo coś dodałeś: git rm --cached terraform.tfstate (usuwa z
+  indeksu, nie z dysku) + commit.
+
+  A gdyby push odepchnął błędem, bo repo jednak nie było puste — nie rób push 
+  --force, tylko: git pull --rebase origin main i dopiero potem push.
+
+  Zainstaluj gh, zrób opcję A i wracaj do samego Terraforma.
+
+❯ na oficjalnej dokumnetacji polecaja korzystac z pliku terraform.tf The        
+  terraform {} block configures Terraform itself, including which providers to  
+  install, and which version of Terraform to use to provision your              
+  infrastructure. Using a consistent file structure makes maintaining your      
+  Terraform projects easier, so we recommend configuring your Terraform block   
+  in a dedicated terraform.tf file.                                             
+                                                                                
+  Create and open a new file named terraform.tf with the following              
+  configuration to define your Terraform block.                                 
+                                                                                
+  terraform.tf                                                                  
+                                                                                
+  terraform {                                                                   
+    required_providers {                                                        
+      aws = {                                                                   
+        source  = "hashicorp/aws"                                               
+        version = "~> 5.92"                                                     
+      }                                                                         
+    }                                                                           
+                                                                                
+    required_version = ">= 1.2"                                                 
+  } z czego my korzystamy zeby stworzyc ten blok?                               
+
+● Dobra obserwacja — i dobra wiadomość: to bezróżnicowe dla Terraforma. Nazwa
+  pliku to tylko konwencja.
+
+  Jak to działa
+
+  Terraform ładuje wszystkie pliki *.tf z katalogu i scala je w jedną
+  konfigurację. Nie obchodzi go, czy blok terraform {} siedzi w terraform.tf,
+  versions.tf czy main.tf — ważne, żeby blok był w projekcie jeden.
+
+  Nazwa to czysta czytelność dla ludzi. Spotykane konwencje:
+
+  ┌──────────────┬───────────────────────────────────────────────────────────┐
+  │     Plik     │                      Skąd się wziął                       │
+  ├──────────────┼───────────────────────────────────────────────────────────┤
+  │ terraform.tf │ oficjalne tutoriale HashiCorp — dlatego to widzisz w docs │
+  ├──────────────┼───────────────────────────────────────────────────────────┤
+  │ versions.tf  │ popularna konwencja w prawdziwych projektach i modułach   │
+  ├──────────────┼───────────────────────────────────────────────────────────┤
+  │ main.tf      │ szybkie tutoriale, wszystko w jednym pliku                │
+  └──────────────┴───────────────────────────────────────────────────────────┘
+
+  Moja rada: skoro uczysz się z oficjalnej dokumentacji, trzymaj się jej —
+  nazwij plik terraform.tf i konsekwentnie tego używaj. Ja podałem versions.tf,
+  bo to częste w repo produkcyjnych, ale w tym momencie mniejsza o to — wybierz
+  jedno i nie mieszaj.
+
+  Jedno ważne rozróżnienie, żeby się nie pomylić
+
+  To dwa różne bloki, które łatwo ze sobą pomylić:
+
+  # terraform.tf — "co instalować"
+  terraform {
+    required_providers {
+      aws = {
+        source  = "hashicorp/aws"
+        version = "~> 5.92"
+      }
+    }
+    required_version = ">= 1.2"
+  }
+
+  # provider.tf albo main.tf — "jak się skonfigurować"
+  provider "aws" {
+    region = var.aws_region
+  }
+
+  - terraform { required_providers } — deklaruje, że używasz providera AWS i w
+  jakiej wersji. Nic nie łączy się z AWS.
+  - provider "aws" {} — faktyczna konfiguracja: z jakiego regionu i jakimi
+  credentials Terraform będzie rozmawiał z AWS. Ten blok też będzie ci
+  potrzebny.
+
+  Oba potrzebujesz. Pytanie rekrutacyjne z tego tematu: "czemu w ogóle przypinać
+   wersje providera?" — bo provider AWS zmienia się co tydzień i bez przypięcia
+  terraform init na innym komputerze (albo na runnerze CI za rok) może ściągnąć
+  inną wersję, która zachowuje się inaczej. Version constraint to冻结 składni.
+
+  A znak ~> 5.92 znaczy: "5.92 lub nowszy, ale poniżej 6.0" (tzw. pessimistic
+  constraint — wersja minor i patch mogą rosnąć, major nie).
+
+❯ dobra robie na razie krok 2 dopiero zaczynam robic vpc, jednak mam juz w      
+  main.tf przygotowane provider data resource zobacz czy tak ma byc i wszystko  
+  potrzebuje :provider "aws" {                                                  
+    region = "eu-central-1"                                                     
+  }                                                                             
+                                                                                
+  data "aws_ami" "ubuntu" {                                                     
+    most_recent = true                                                          
+                                                                                
+    filter {                                                                    
+      name   = "name"                                                           
+      values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]  
+    }                                                                           
+                                                                                
+    owners = ["099720109477"] # Canonical                                       
+  }                                                                             
+                                                                                
+  resource "aws_instance" "app_server" {                                        
+    ami           = data.aws_ami.ubuntu.id                                      
+    instance_type = var.instance_type                                           
+                                                                                
+    vpc_security_group_ids = [module.vpc.default_security_group_id]             
+    subnet_id              = module.vpc.private_subnets[0]                      
+                                                                                
+    tags = {                                                                    
+      Name = var.instance_name                                                  
+    }                                                                           
+  }                                                                             
+                                                                                
+
+● Zatrzymaj się na chwilę, bo tu mieszają ci się dwie różne ścieżki nauki. Ten
+  kod (provider + data aws_ami + aws_instance z module.vpc) to niemal żywcem
+  snippet z oficjalnego tutoriala HashiCorp "Build Infrastructure". Tam się go
+  używa z gotowym modułem VPC z registry. U nas w zadaniu 1 robimy co innego —
+  piszemy sieć sami, od surowych zasobów. To nie jest kaprys: cały sens zadania
+  jest w tym, że sam piszesz aws_vpc i aws_subnet, zamiast ktoś-inny-za-ciebie.
+
+  Omówmy po kolei, co masz:
+
+  Co jest dobrze:
+  - provider "aws" — składniowo ok, ale pisałem, żeby region był variablem, a
+  masz zahardkodowany "eu-central-1". Dlaczego to ważne: przy hardcoded regionie
+   przeniesienie projektu do innego konta/regionu = edycja kodu; z variablem =
+  -var albo inny terraform.tfvars bez ruszania kodu.
+
+  Co nie zadziała / nie pasuje:
+
+  1. module.vpc.private_subnets[0] — nie masz żadnego modułu. To odwołanie do
+  zadeklarowanego bloku module "vpc" {...}, którego w Twoim projekcie nie ma.
+  Plan się wysypie. Moduły to etap 6 — najpierw musisz wiedzieć, co moduł robi w
+   środku, żeby sensownie go używać.
+  2. data "aws_ami" + aws_instance — to jest materiał na zadanie 2 (bastion).
+  Nie może powstać przed siecią, bo instancja musi siedzieć w subnecie, którego
+  jeszcze nie masz. Odłóż ten fragment do notatki na później — sama data block
+  jest napisana dobrze (owner 099720109477 to faktycznie Canonical, filter
+  poprawny), wzorzec "najświeższe AMI przez data source" przyda ci się przy
+  bastionie.
+  3. var.instance_type, var.instance_name — zmienne na zadanie 2, na razie ci
+  zbędne.
+
+  Czego teraz oczekuję w main.tf — sama lista typów zasobów, argumenty
+  wyprowadzisz z dokumentacji providera (to twoja robota):
+
+  resource "aws_vpc"                  # 1x
+  resource "aws_subnet"               # 4x (2 publiczne, 2 prywatne, 2 różne AZ)
+  resource "aws_internet_gateway"     # 1x
+  resource "aws_route_table"          # 2x (publiczna z trasą do IGW, prywatna
+  bez)
+  resource "aws_route_table_association"  # 4x
+
+  W variables.tf na ten moment wystarczą ci dwie zmienne: region i CIDR VPC. W
+  outputs.tf — vpc_id i ID publicznych subniet.
+
+  Jeszcze jedno pytanie kontrolne do przemyślenia na marginesie (skoro już
+  tkwisz w tutorialu HashiCorp): czym się różni data block od resource block? Bo
+   to jest dokładnie różnica między "znajdź istniejące AMI, które ktoś stworzył"
+   a "stworz nową rzecz". Wróć jak będziesz miał plan z całą siatką — wtedy go
+  przejdziemy.
+
+❯ dobra czy to jak bedzie tworzona infrastruktura zalezy od tego jaka           
+  kolejnoscc resources bedzie wpisana w tym pliku? odpowiadaj prosze krotko nie 
+   rozpisuj sie                                                                 
+
+● Nie. Kolejność w pliku nie ma znaczenia — Terraform analizuje referencje 
+  między zasobami i sam buduje graf zależności. Jak w subnecie napiszesz vpc_id 
+  = aws_vpc.main.id, to wie, że VPC musi powstać pierwszy, niezależnie od
+  kolejności w pliku. Wyjątek to depends_on (wymuszenie zależności, gdy
+  referencji nie widać w kodzie) — rzadko potrzebne. Teraz wiesz tez, czemu mogę
+   ci dać listę zasobów bez kolejności.
+
+❯ dobrze, teraz pyranie, napisales ze oczekujesz resource aws vpc, vpc nie      
+  tworzy sie w bloku module?                                                    
+
+● Nie — resource "aws_vpc" to jedyny sposób, w jaki VPC вообще powstaje. Moduł
+  to nie alternatywa dla resource, tylko opakowanie na czyjeś resourcy.
+
+  W środku modułu terraform-aws-modules/vpc (tego z tutoriala HashiCorp)
+  znajdziesz dokładnie te same bloki: resource "aws_vpc", resource "aws_subnet"
+  itd. — napisane przez autorów modułu. Jak wywołujesz module "vpc", Terraform
+  po prostu wykonuje te zasoby, a module.vpc.private_subnets to output, który
+  autorzy modułu wystawili.
+
+  Ciekawostka: twój katalog projektu to też moduł — tzw. root module. Więc nawet
+   "nie używając modułów", używasz modułów.
+
+  W zadaniu 1 piszemy surowe resourcy, żebyś zobaczył, co moduł robi za
+  kulisami. Moduł bez tej wiedzy to czarna magia — a na rozmowie pytają właśnie
+  o środek.
+
+❯ dobra podsumuj mi co mamy do wykonania dokladnie i zapisz mi do pliku w       
+  ~/Projects/Terraform                                                          
+
+  Listed 1 directory (ctrl+o to expand)
+● Widzę, że projekt żyje w ~/Projects/Terraform — i już masz nawet
+  terraform.tfstate, czyli gdzieś apply przeszedł. Rzucę okiem na pliki, żeby
+  podsumowanie odzwierciedlało faktyczny stan.
+
+  Read 3 files (ctrl+o to expand)
+
+● Widzę pełny obraz. Zapisuję podsumowanie do ZADANIE.md w Twoim katalogu
+  projektu.
+
+● Write(~/Projects/Terraform/ZADANIE.md)
+  ⎿  Wrote 85 lines to ../../Terraform/ZADANIE.md
+      1 # Terraform — nauka na przykładzie projektu 3-tier
+      2 
+      3 Cel: opanować Terraform, budując stopniowo (i tanio) architekturę
+         podobną do
+      4 projektu AWS-3tier-java-app. Kod piszę SAM — źródła: docs Terrafo
+        rma +
+      5 docs providera AWS. Jak utknę 30 min → wracam z konkretnym błędem
+        .
+      6 
+      7 Stan na 2026-09-03: teraform + repo git działają, init zrobiony,
+      8 apply był uruchamiany (jest tfstate). Pliki wciąż z tutoriala Has
+        hiCorp —
+      9 do przerobienia wg zadania 1 poniżej.
+     … +75 lines (ctrl+o to expand)
+
+● Zapisane: ~/Projects/Terraform/ZADANIE.md — pełna spec zadania 1, workflow,
+  definicja ukończenia, bank pytań kontrolnych (już 8), koszty i plan zadań 2–6.
+
+  Przy okazji zobaczyłem Three rzeczy w Twoim katalogu, z których jedna jest
+  pilna:
+
+  1. .gitignore jest pusty — a masz już terraform.tfstate i .terraform/ na
+  dysku. Zanim cokolwiek spushujesz, wpisz do niego .terraform/, *.tfstate,
+  *.tfstate.backup. To jedyna rzecz z tej listy, którą możesz zrobić teraz od
+  razu.
+  2. main.tf to wciąż kod z tutoriala (module + EC2) — w ZADANIE.md masz sekcję
+  "Sprzątanie main.tf": co zostaje, co wylatuje.
+  3. Śmieci do posprzątania: main.tf.save i .main.tf.swp — vimowe artefakty.
+
+  Wracaj, jak będziesz miał plan z całą siatką — przejdziemy go razem.
+
+✻ Cooked for 1m 39s
+
+❯ pytanie mam napisany jeden subnet publiczny, czy potrzebuje dla kazdego       
+  subnetu pisa osobny resource czy jakos to izie razem zrobic: resource         
+  "aws_subnet" "subnet-pub-1" {                                                 
+    vpc_id = aws.vpc.VPC1.id                                                    
+    cidr_block = "10.0.1.0/24"                                                  
+    availability_zone = "eu-central-1a"                                         
+    map_public_ip_on_launch = true                                              
+    tags = {                                                                    
+      Name = "public_subnet_1"                                                  
+    }                                                                           
+  }                                                                             
+
+● Zanim odpowiem — masz błąd składniowy: aws.vpc.VPC1.id nie istnieje.
+  Referencja do zasobu to <typ>.<nazwa>.<atrybut>, czyli:
+
+  vpc_id = aws_vpc.VPC1.id
+
+  (podkreślenie, nie kropka — aws_vpc to jeden identyfikator typu).
+
+  A do pytania: oba podejścia działają, i celowo proponuję po kolei:
+
+  1. Najpierw wypisz 4 osobne bloki (jak zacząłeś). To bardziej kopiuj-wklej,
+  ale widzisz czarno na białym każdy argument i referencje są proste. Na etapie
+  nauki to zaleta.
+  2. Potem zrób refactor na for_each (to bonus z zadania) — jedna pętla zamiast
+  4 bloków:
+
+  resource "aws_subnet" "public" {
+    for_each = {
+      a = { cidr = "10.0.1.0/24", az = "eu-central-1a" }
+      b = { cidr = "10.0.2.0/24", az = "eu-central-1b" }
+    }
+
+    vpc_id            = aws_vpc.VPC1.id
+    cidr_block        = each.value.cidr
+    availability_zone = each.value.az
+    map_public_ip_on_launch = true
+  }
+
+  Kluczowa różnica przy for_each: zmieniają się referencje. Już nie
+  aws_subnet.subnet_pub_1.id, tylko aws_subnet.public["a"].id — bo jeden
+  resource staje się mapą wielu instancji. To cię ukaże też przy
+  aws_route_table_association, która musi wskazać konkretne subnety. Porównanie
+  obu wersji to właśnie lekcja tego zadania.
+
+  Drobiazg na przyszłość: jak chcesz uniknąć hardcodowania AZ, istnieje data 
+  "aws_availability_zones" — ale to sobie odpuść na razie, żeby nie mieszać zbyt
+   wielu konceptów naraz.
+
+❯ sprawdz mi @~/Projects/Terraform/main.tf czy poki co dobrze to wyglada        
+  ⎿  Read ../../Terraform/main.tf (74 lines)
+
+● Dobry kierunek — struktura sensowna, subnety dobrze poukładane (AZ się
+  zgadzają, map_public_ip_on_launch tylko na publicznych — bardzo dobrze). Ale
+  mam dwa błędy, przez które plan nie przejdzie, i parę drobiazgów.
+
+  Błędy blokujące
+
+  1. route to nie argument, tylko blok zagnieżdżony (main.tf:62). Piszesz route 
+  = { ... } (jak tags), a route się powtarza jako osobny blok — bez znaku =:
+
+  resource "aws_route_table" "public_route_table" {
+    vpc_id = aws_vpc.VPC1.id
+
+    route {
+      cidr_block = "0.0.0.0/0"
+      gateway_id = aws_internet_gateway.igw.id
+    }
+  }
+
+  To ważna lekcja składni HCL: tags = {...} to argument (jeden, typu mapa), a
+  route {...} to blok (może ich być kilka — po jednej trasie na blok). Terraform
+   wywali się na walidacji z komunikatem "argument named route is not expected
+  here" albo podobnym.
+
+  2. Literówka w referencji (main.tf:72): aws_vpc.my_vpc.id — nie masz zasobu o
+  nazwie my_vpc, twój nazywa się VPC1. Błąd "Reference to undeclared resource".
+  (Copy-paste z przykładu z docs, sądząc po nazwie.)
+
+  Drobiazgi (nie blokują)
+
+  - aws_route_table prywatna nie ma tagów — dorzuć Name, dla spójności z resztą
+  - CIDR VPC masz zahardkodowany, a w zadaniu miał być var.vpc_cidr
+  - Styl: nazwy zasobów conventionem są małe litery + podkreślenia (vpc_main,
+  subnet_pub_1). Wielkie VPC1 i myślniki działają, ale w cudzych projektach
+  zobaczysz snake_case — warto się przyzwyczaić. Zdecyduj się na jedno i
+  trzymaj.
+
+  Co jeszcze brakuje do końca zadania
+
+  1. aws_route_table_association × 4 (publiczne subnety → publiczna RT, prywatne
+   → prywatna)
+  2. outputs.tf: vpc_id + ID publicznych subniet (pamiętaj — na razie referencje
+   zwykłe, bo nie używasz for_each)
+  3. Refactor na for_each jako bonus — możesz zrobić po pierwszym udanym apply
+
+  Popraw dwa błędy, dopisz asocjacje i odpal terraform fmt && terraform validate
+   — to dwa szybkie filtry, zanim odpalisz plan. Jak validate przejdzie, pokaż
+  mi plan.
+
+❯ dobra jaki type w variables na vpc_cidr                                       
+
+● string — CIDR to dla Terraforma zwykły napis:
+
+  variable "vpc_cidr" {
+    description = "CIDR block for the VPC"
+    type        = string
+    default     = "10.0.0.0/16"
+  }
+
+  Gdybyś kiedyś trzymał listę CIDR-ów (np. wszystkie 4 subnety w jednej
+  zmiennej, pod for_each), to byłby list(string) albo map(string) przy mapie z
+  AZ.
+
+❯ dobra sprawdz mi @~/Projects/Terraform/main.tf                                
+  ⎿  Read ../../Terraform/main.tf (77 lines)
+
+● Bash(cd ~/Projects/Terraform && terraform fmt -check -diff 2>&1; echo "---
+      validate ---"; terraform validate 2>&1)
+  ⎿  Error: Exit code 1
+     main.tf
+     --- old/main.tf
+     +++ new/main.tf
+     @@ -3,19 +3,19 @@
+      }
+      
+      resource "aws_vpc" "VPC1" {
+     -  cidr_block = var.vpc_cidr
+     -  enable_dns_support = true
+     … +132 lines (ctrl+o to see all)
+
+● Dobrze, że dorzuciłeś asocjacje — ale validate wyłapuje dwa błędy i jedną 
+  literówkę:
+
+  1. Zduplikowane nazwy zasobów. Masz dwa bloki o nazwie
+  public_subnet_association i dwa private_subnet_association. Nazwa zasobu musi
+  być unikalna w obrębie typu w całym module — Terraform traktuje parę typ + 
+  nazwa jak adres, dwa zasoby pod tym samym adresem to konflikt. Zmień na np.
+  public_assoc_1, public_assoc_2...
+
+  2. Literówka w referencji: aws_route.table.public_route_table.id — typ nazywa
+  się aws_route_table (jeden identyfikator), a aws_route to zupełnie inny zasób.
+   Popraw we wszystkich czterech asocjacjach.
+
+  3. Formatowanie — odpal terraform fmt (bez -check, żeby naprawił, nie tylko
+  sprawdził): wyrówna ci = w kolumnę i usunie spacje na końcach linii po }.
+
+  Potem: terraform validate jeszcze raz → jak przejdzie, terraform plan i wklej
+  mi go (albo chociaż podsumowanie z końca: ile zasobów do stworzenia).
+
+  Dwie rzeczy na przyszłość z tej lekcji:
+  - Komunikat błędu z validate mówi ci plik i linię — czytaj od góry, naprawiaj
+  po kolei; często jeden błąd maskuje kolejne (dlatego po literówce z pkt 2
+  validate jeszcze nie krzyczał o aws_route.table)
+  - Asocjacje RTA to klasyka do for_each — jak skończysz wersję "ręczną" i
+  będziesz robił bonus z subneta, zrób drugi przebieg też przez asocjacje
+
+✻ Crunched for 37s
+
+❯ Terraform will perform the following actions:                                 
+                                                                                
+    # aws_internet_gateway.igw will be created                                  
+    + resource "aws_internet_gateway" "igw" {                                   
+        + arn      = (known after apply)                                        
+        + id       = (known after apply)                                        
+        + owner_id = (known after apply)                                        
+        + region   = "eu-central-1"                                             
+        + tags     = {                                                          
+            + "Name" = "igw"                                                    
+          }                                                                     
+        + tags_all = {                                                          
+            + "Name" = "igw"                                                    
+          }                                                                     
+        + vpc_id   = (known after apply)                                        
+      }                                                                         
+                                                                                
+    # aws_route_table.private_route_table will be created                       
+    + resource "aws_route_table" "private_route_table" {                        
+        + arn              = (known after apply)                                
+        + id               = (known after apply)                                
+        + owner_id         = (known after apply)                                
+        + propagating_vgws = (known after apply)                                
+        + region           = "eu-central-1"                                     
+        + route            = (known after apply)                                
+        + tags             = {                                                  
+            + "Name" = "private_route_table"                                    
+          }                                                                     
+        + tags_all         = {                                                  
+            + "Name" = "private_route_table"                                    
+          }                                                                     
+        + vpc_id           = (known after apply)                                
+      }                                                                         
+                                                                                
+    # aws_route_table.public_route_table will be created                        
+    + resource "aws_route_table" "public_route_table" {                         
+        + arn              = (known after apply)                                
+        + id               = (known after apply)                                
+        + owner_id         = (known after apply)                                
+        + propagating_vgws = (known after apply)                                
+        + region           = "eu-central-1"                                     
+        + route            = [                                                  
+            + {                                                                 
+                + cidr_block                 = "0.0.0.0/0"                      
+                + gateway_id                 = (known after apply)              
+                  # (12 unchanged attributes hidden)                            
+              },                                                                
+          ]                                                                     
+        + tags             = {                                                  
+            + "Name" = "public_route_table"                                     
+          }                                                                     
+        + tags_all         = {                                                  
+            + "Name" = "public_route_table"                                     
+          }                                                                     
+        + vpc_id           = (known after apply)                                
+      }                                                                         
+                                                                                
+    # aws_route_table_association.private_subnet_association_1 will be created  
+    + resource "aws_route_table_association" "private_subnet_association_1" {   
+        + id             = (known after apply)                                  
+        + region         = "eu-central-1"                                       
+        + route_table_id = (known after apply)                                  
+        + subnet_id      = (known after apply)                                  
+      }                                                                         
+                                                                                
+    # aws_route_table_association.private_subnet_association_2 will be created  
+    + resource "aws_route_table_association" "private_subnet_association_2" {   
+        + id             = (known after apply)                                  
+        + region         = "eu-central-1"                                       
+        + route_table_id = (known after apply)                                  
+        + subnet_id      = (known                                               
+  … +107 lines …                                                                
+                  = false                                                       
+        + enable_resource_name_dns_a_record_on_launch    = false                
+        + enable_resource_name_dns_aaaa_record_on_launch = false                
+        + id                                             = (known after apply)  
+        + ipv6_cidr_block                                = (known after apply)  
+        + ipv6_cidr_block_association_id                 = (known after apply)  
+        + ipv6_native                                    = false                
+        + map_public_ip_on_launch                        = true                 
+        + owner_id                                       = (known after apply)  
+        + private_dns_hostname_type_on_launch            = (known after apply)  
+        + region                                         = "eu-central-1"       
+        + tags                                           = {                    
+            + "Name" = "public_subnet_2"                                        
+          }                                                                     
+        + tags_all                                       = {                    
+            + "Name" = "public_subnet_2"                                        
+          }                                                                     
+        + vpc_id                                         = (known after apply)  
+      }                                                                         
+                                                                                
+    # aws_vpc.VPC1 will be created                                              
+    + resource "aws_vpc" "VPC1" {                                               
+        + arn                                  = (known after apply)            
+        + cidr_block                           = "10.0.0.0/16"                  
+        + default_network_acl_id               = (known after apply)            
+        + default_route_table_id               = (known after apply)            
+        + default_security_group_id            = (known after apply)            
+        + dhcp_options_id                      = (known after apply)            
+        + enable_dns_hostnames                 = true                           
+        + enable_dns_support                   = true                           
+        + enable_network_address_usage_metrics = (known after apply)            
+        + id                                   = (known after apply)            
+        + instance_tenancy                     = "default"                      
+        + ipv6_association_id                  = (known after apply)            
+        + ipv6_cidr_block                      = (known after apply)            
+        + ipv6_cidr_block_network_border_group = (known after apply)            
+        + main_route_table_id                  = (known after apply)            
+        + owner_id                             = (known after apply)            
+        + region                               = "eu-central-1"                 
+        + tags                                 = {                              
+            + "Name"    = "VPC1"                                                
+            + "Project" = "terraform-3tier"                                     
+          }                                                                     
+        + tags_all                             = {                              
+            + "Name"    = "VPC1"                                                
+            + "Project" = "terraform-3tier"                                     
+          }                                                                     
+      }                                                                         
+                                                                                
+  Plan: 12 to add, 0 to change, 0 to destroy.                                   
+                                                                                
+
+● Plan jest poprawny — 12 zasobów, dokładnie to, co zadanie wymagalo: 1 VPC + 4
+  subnety + IGW + 2 tablice + 4 asocjacje. Sprawdziłem kluczowe rzeczy: CIDR-y
+  się nie nakładają, AZ się rozchodzą (a/b), map_public_ip_on_launch=true tylko
+  na publicznych, trasa 0.0.0.0/0→IGW tylko w publicznej tablicy. Możesz
+  aplikować.
+
+  Jak czytać to, co właśnie wkleiłeś (3 lekcje z tego planu)
+
+  1. Symbole przy zasobach. + = stworzenie. Bedziesz też widział ~ (modyfikacja)
+   i - (usunięcie) — a podsumowanie na dole (12 to add, 0 to change, 0 to 
+  destroy) to pierwsza rzecz, którą patrzysz, zanim powiesz yes. Zwłaszcza 0 to 
+  destroy — jak kiedyś zobaczysz tam coś nieoczekiwanego, STOP i czytaj
+  szczegóły.
+
+  2. (known after apply). Np. gateway_id = (known after apply) — ID bramy
+  wygeneruje AWS dopiero przy tworzeniu. To też pośrednio pokazuje graf
+  zależności: Terraform wie, że IGW musi powstać przed tablicą routingu. Stąd
+  "known after apply" = "to zależy od czegoś, co dopiero powstanie".
+
+  3. Skąd tags_all? Widzisz tags i tags_all z tą samą zawartością — provider AWS
+   sam liczy tags_all jako finalne tagi (twóje + ewentualne default_tags z
+  providera). Normalne, nie ruszaj.
+
+  Dalsze kroki
+
+  1. Najpierw dopisz outputs.tf (vpc_id, ID publicznych subniet) — jak
+  zapomnisz, można dorzucić i po apply, ale tak masz mniej biegania
+  2. terraform apply → yes → poczekaj (~minuta)
+  3. Checklista w konsoli AWS: VPC → Twoje subnety w dobrych AZ → Route Tables →
+   publiczna ma trasę 0.0.0.0/0, prywatna tylko lokalną → Subnet Associations w
+  obu tablicach
+  4. Na koniec terraform destroy i sprawdź w konsoli, że po wszystko zniknęło —
+  to jest równie ważna część ćwiczenia jak apply
+
+  Jak apply i destroy przejdą — zadanie 1 zaliczone, odhaczysz punkty w
+  ZADANIE.md i przechodzimy do pytań kontrolnych, a potem zadania 2 (bastion).
+
+❯ dobrze sprawdz output z @~/Projects/Terraform/outputs.tf                      
+  ⎿  Read ../../Terraform/outputs.tf (16 lines)
+
+● Poprawne — referencje się zgadzają, zadziała. Dwie uwagi, jedna praktyczna:
+
+  1. Prościej listą. Zamiast dwóch osobnych outputów (subnet_pub_1_id,
+  subnet_pub_2_id) wystaw jedną listę — to dokładnie to, co pisałem w zadaniu:
+
+  output "public_subnet_ids" {
+    description = "IDs of the public subnets"
+    value       = [aws_subnet.subnet-pub-1.id, aws_subnet.subnet-pub-2.id]
+  }
+
+  Dlaczego warto: konsument tego outputu (np. moduł z ALB w zadaniu 5) chce
+  "wszystkie publiczne subnety", nie "subnet 1 i subnet 2 osobno". Bonus: po
+  refactorze na for_each wystawianie listy robi się jeszcze krótsze
+  (values(aws_subnet.public)[*].id — na razie nie musisz tego rozumieć).
+
+  2. Jak je potem odczytać. Po apply outputy wypiszą się na ekran, ale wracają
+  też później komendą terraform output (samo, albo terraform output vpc_id dla
+  jednego). Staną się też przydatne przy zadaniu 2, jak bastion będzie
+  potrzebował subnet_id.
+
+  Drobiazg estetyczny: dwie puste linie na końcu — terraform fmt uprzątnie.
+
+  Popraw, odpal terraform fmt && terraform validate && terraform apply i leć z
+  checklistą konsoli.
+
+❯ aaa czyli rozumiem ze output.tf zawiera jakby zmienne ktore mozna sobie       
+  wykorzystac potem? ale znowu czym sa zmienne w variables jaka roznica miedzy  
+  tym jest                                                                      
+
+● Dobra intuicja, ale doprecyzujmy — to jest pytanie kontrolne nr 4, więc
+  dobrze, że je dopadłeś. Najłatwiej myśleć o tym jak o funkcji:
+
+  # variables = ARGUMENTY funkcji (wejście)
+  variable "vpc_cidr" {}        # "podaj mi CIDR, domyślnie 10.0.0.0/16"
+
+  # outputs = RETURN funkcji (wyjście)
+  output "vpc_id" {
+    value = aws_vpc.VPC1.id     # "oddaję ci ID tego, co powstało"
+  }
+
+  Przepływ wygląda tak:
+
+  variables (ty podajesz PRZED) → Terraform tworzy infra → outputs (AWS generuje
+   PO)
+
+  Kluczowe różnice praktyczne:
+
+  ┌────────────────────┬──────────────────────────┬─────────────────────────┐
+  │                    │       variables.tf       │       outputs.tf        │
+  ├────────────────────┼──────────────────────────┼─────────────────────────┤
+  │ Kiedy znane        │ przed uruchomieniem (ty  │ dopiero po apply        │
+  │                    │ je ustalasz)             │ (generuje je AWS)       │
+  ├────────────────────┼──────────────────────────┼─────────────────────────┤
+  │                    │ parametryzacja — ten sam │ odczyt — sprawdzasz co  │
+  │ Po co              │  kod, różne wartości     │ powstało / przekazujesz │
+  │                    │                          │  dalej                  │
+  ├────────────────────┼──────────────────────────┼─────────────────────────┤
+  │ Jak                │ -var, terraform.tfvars   │ terraform output vpc_id │
+  │ nadpisać/odczytać  │                          │                         │
+  └────────────────────┴──────────────────────────┴─────────────────────────┘
+
+  Przykład z Twojego projektu: vpc_cidr to zmienna (decydujesz PRZED
+  tworzeniem), a vpc_id to output (ID vymyśli AWS DOPERO przy tworzeniu — stąd w
+   planie było known after apply).
+
+  To stanie się bardzo konkretne przy modułach (zadanie 6): variables i outputs 
+  to razem interfejs modułu — moduł przyjmuje zmienne, wystawia outputy.
+  Dokładnie jak module.vpc.private_subnets z tutoriala, które już widziałeś — to
+   był output modułu, który ktoś zdefiniował w środku.
+
+❯ jak moge przeniesc ta konwersacje na inny komputer                            
+● claude-code-guide(Research moving Claude Code sessions)
+  ⎿  Done (3 tool uses · 21.6k tokens · 1m 8s)
+  (ctrl+o to expand)
+
+● Masz trzy realne opcje, od najprostszej:
+
+  1. /export — najprostsze (tylko do odczytu)
+
+  W tej sesji wpisz /export — skopiuje rozmowę do schowka albo zapisze jako plik
+   tekstowy. Przenosisz plik gdzie chcesz i masz całą treść, ale to snapshot,
+  nie "żywa" sesja do kontynuowania.
+
+  2. Skopiowanie sesji — pełna kontynuacja
+
+  Rozmowy siedzą w ~/.claude/projects/<zakodowana-ścieżka>/ (jeden plik .jsonl
+  na sesję; ścieżka projektu z / zamienionymi na -). Ta sesja mieszka w:
+
+  ~/.claude/projects/-home-domien-Projects-Devops-projekty/
+
+  Kopiujesz na drugi komputer pod tę samą ścieżkę projektu i tam claude 
+  --resume:
+
+  scp -r ~/.claude/projects/-home-domien-Projects-Devops-projekty/
+  user@drugi:~/.claude/projects/
+
+  Zastrzeżenia:
+  - na drugiej maszynie musisz osobno zrobić claude login (sesje nie niosą
+  credentials)
+  - projekt pod inną ścieżką = sesja nie pokaże się w pickerze; najlepiej ta
+  sama wersja CLI na obu maszynach
+
+  3. Claude Code na webie (claude.ai/code)
+
+  Sesje chmurowe trzymają się konta, nie plików — zaczynasz w przeglądarce i
+  masz dostęp z każdego komputera. Ale istniejącej sesji terminalowej nie 
+  wypchniesz do chmury — to działa tylko w drugą stronę (/teleport ściąga sesję
+  webową do terminala). Czyli: na przyszłość, nie dla tej rozmowy.
+
+  Moja rada na dziś: /export do pliku + i tak praca jest w gitach i ZADANIE.md,
+  więc kontekst odtworzysz na drugiej maszynie bez problemu — większość twojego
+  projektu (kod, zadanie, roadmapa) jest w plikach, nie w rozmowie.
+
+✻ Worked for 2m 7s
