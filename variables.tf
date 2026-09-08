@@ -1,7 +1,7 @@
 variable "instance_name" {
   description = "Value of the EC2 instance's Name tag."
   type        = string
-  default     = "learn-terraform"
+  default     = "bastion_instance"
 }
 
 variable "instance_type" {
@@ -23,6 +23,5 @@ variable "vpc_cidr" {
 }
 
 variable "my_ip" {
-  type = string
-  default = "37.31.14.159/32"
+  type    = string
 }

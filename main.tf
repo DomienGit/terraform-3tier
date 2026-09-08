@@ -2,6 +2,31 @@ provider "aws" {
   region = var.region
 }
 
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-2023.*-x86_64"]
+  }
+
+  owners = ["amazon"]
+}
+
+resource "aws_instance" "bastion_instance" {
+  ami                         = data.aws_ami.amazon_linux.id
+  instance_type               = var.instance_type
+  key_name                    = aws_key_pair.bastion_key.id
+  vpc_security_group_ids      = [aws_security_group.bastion_sg.id]
+  subnet_id                   = aws_subnet.subnet-pub-1.id
+  associate_public_ip_address = true
+
+  tags = {
+    Name = var.instance_name
+    Project = "terraform-3tier"
+  }
+}
+
 resource "aws_vpc" "VPC1" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
@@ -96,7 +121,7 @@ resource "aws_route_table_association" "private_subnet_association_2" {
 }
 
 resource "aws_key_pair" "bastion_key" {
-  key_name = "bastion_key"
+  key_name   = "bastion_key"
   public_key = file(pathexpand("~/.ssh/terraform-3tier.pub"))
 }
 
@@ -106,17 +131,17 @@ resource "aws_security_group" "bastion_sg" {
     Name = "bastion_sg"
   }
 }
- 
+
 resource "aws_vpc_security_group_ingress_rule" "allow_ssh" {
   security_group_id = aws_security_group.bastion_sg.id
-  cidr_ipv4 = var.my_ip
-  from_port = 22
-  ip_protocol = "tcp"
-  to_port = 22
+  cidr_ipv4         = var.my_ip
+  from_port         = 22
+  ip_protocol       = "tcp"
+  to_port           = 22
 }
 
 resource "aws_vpc_security_group_egress_rule" "allow_all_traffic" {
   security_group_id = aws_security_group.bastion_sg.id
-  cidr_ipv4 = "0.0.0.0/0"
-  ip_protocol = "-1"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
 }
