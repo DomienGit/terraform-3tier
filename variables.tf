@@ -23,5 +23,24 @@ variable "vpc_cidr" {
 }
 
 variable "my_ip" {
-  type    = string
+  type = string
 }
+
+variable "db_name" {
+  description = "Name of the database"
+  type        = string
+  default     = "mysql_db"
+}
+
+variable "db_username" {
+  description = "Database username"
+  type        = string
+  default     = "user"
+}
+
+variable "db_password" {
+  description = "Database password"
+  type        = string
+  sensitive   = true
+}
+

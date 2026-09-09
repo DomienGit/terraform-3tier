@@ -12,3 +12,8 @@ output "public_ip_bastion_instance" {
   description = "Public ip of the bastion instance"
   value       = aws_instance.bastion_instance.public_ip
 }
+
+output "rds_endpoint" {
+  description = "Connection endpoint of the RDS instance"
+  value       = aws_db_instance.mysql_db.endpoint
+}

@@ -22,7 +22,7 @@ resource "aws_instance" "bastion_instance" {
   associate_public_ip_address = true
 
   tags = {
-    Name = var.instance_name
+    Name    = var.instance_name
     Project = "terraform-3tier"
   }
 }
@@ -144,4 +144,43 @@ resource "aws_vpc_security_group_egress_rule" "allow_all_traffic" {
   security_group_id = aws_security_group.bastion_sg.id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
+}
+
+resource "aws_db_subnet_group" "rds_subnet_group" {
+  name       = "rds_subnet_group"
+  subnet_ids = [aws_subnet.subnet-priv-1.id, aws_subnet.subnet-priv-2.id]
+
+  tags = {
+    Name = "rds_subnet_group"
+  }
+}
+
+resource "aws_security_group" "rds_sg" {
+  name        = "rds_security_group"
+  description = "Allow bastion sg inbound traffic"
+
+  vpc_id = aws_vpc.VPC1.id
+}
+
+resource "aws_vpc_security_group_ingress_rule" "rds_sg_ingress" {
+  security_group_id            = aws_security_group.rds_sg.id
+  referenced_security_group_id = aws_security_group.bastion_sg.id
+  from_port                    = 3306
+  ip_protocol                  = "tcp"
+  to_port                      = 3306
+}
+
+resource "aws_db_instance" "mysql_db" {
+  db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.id
+  vpc_security_group_ids = [aws_security_group.rds_sg.id]
+  engine                 = "mysql"
+  engine_version         = "8.0.46"
+  instance_class         = "db.t3.micro"
+  allocated_storage      = 20
+  db_name                = var.db_name
+  username               = var.db_username
+  password               = var.db_password
+  publicly_accessible    = false
+  multi_az               = false
+  skip_final_snapshot    = true
 }
