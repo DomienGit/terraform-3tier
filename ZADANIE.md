@@ -9,8 +9,8 @@ ZOSTAJE i rośnie o nowe elementy. Destroy tylko: (a) na koniec sesji nauki /
 przerwę, (b) gdy coś trzeba posprzątać. Po każdym destroy + apply wszystko
 wstaje z powrotem, ale publiczne IP się zmieniają.
 
-Stan na 2026-09-08: zadania 1 i 2 zaliczone (bastion stoi, ssh działa).
-Aktualne: **zadanie 3**. terraform 1.16, aws-cli 2.36, provider aws ~> 6.62.
+Stan na 2026-09-13: zadania 1–3 zaliczone (RDS stoi: prywatne subnety,
+PubliclyAccessible=No, port 3306 z bastiona OK). Następne: **zadanie 4**.
 
 ---
 
@@ -30,7 +30,13 @@ output publicznego IP. Test ssh (ec2-user) przeszedł.
 
 ---
 
-## Zadanie 3 (AKTUALNE): RDS MySQL — warstwa danych
+## Zadanie 3 (ZALICZONE 2026-09-13): RDS MySQL — warstwa danych
+
+db_subnet_group na 2 prywatnych subnetach, SG-to-SG 3306 (referenced_
+security_group_id), db.t3.micro / 20 GiB / 8.0.46, sekrety w gitignorowanym
+terraform.tfvars (db_password sensitive), test: `ssh -v -p 3306` →
+`Connection established`. Weryfikacja CLI: prywatne subnety, Publicly
+Accessible = No.
 
 ### Krok 0 — porządki
 - [ ] zacommitować kod zadania 2 (portfolio!)
@@ -78,16 +84,18 @@ była mowa przy zadaniu 2.
 
 Test łączności (ssh na bastion, potem):
 ```
-timeout 3 bash -c '</dev/tcp/ENDPOINT:3306' && echo "PORT OK"
+sudo dnf install -y nmap-ncat          # raz; bash AL2023 nie ma /dev/tcp!
+nc -zv ENDPOINT 3306                   # świeży ENDPOINT z terraform output
 ```
-Opcjonalnie pełny klient na bastionie:
-`sudo dnf install -y mariadb105` → `mysql -h ENDPOINT -u USERNAME -p`
+Uwaga z lasu: bash na AL2023 jest budowany bez net-redirections, więc trik
+`</dev/tcp/host/port>` tam nie działa (mylący błąd "No such file or directory").
+Opcjonalnie pełny klient: `sudo dnf install -y mariadb105` → `mysql -h ENDPOINT -u USER -p`
 
 ### Definition of done
-- [ ] plan pokazuje **4 to add** (bastion i sieć już stoją — kumulatywnie)
-- [ ] test 3306 z bastiona przechodzi (cały łańcuch: routing + SG-to-SG)
-- [ ] konsola RDS: subnety prywatne, Publicly accessible = No
-- [ ] destroy na koniec sesji przechodzi bez tworzenia snapshotu
+- [x] plan pokazał 21 to add, apply przeszedł
+- [x] test 3306 z bastiona: `Connection established` (ssh -v)
+- [x] weryfikacja: subnety prywatne, Publicly accessible = No
+- [ ] destroy na koniec sesji (zasada stała)
 
 ### Koszt
 db.t3.micro = osobne 750h/mies. w free tier (nie dzieli się z EC2), 20 GiB
@@ -134,6 +142,11 @@ w zadaniu 4; teraz wystarczy zmienna sensitive + tfvars.
 - **6**: refaktor na moduły + remote state w S3
 
 ## TODO porządkowe
-- [ ] commit kodu zadania 2
-- [ ] terraform.tfvars (my_ip + db_password) + wpis do .gitignore
-- [ ] usunąć default my_ip z variables.tf (do tfvars)
+- [ ] commit zadania 3: `Add RDS MySQL (task 3)`
+- [ ] drobiazgi kodu: `identifier = "terraform-3tier-db"` + tagi na
+      db_instance i rds_sg — UWAGA: zmiana identifier wymusi replace
+      bazy (plan pokaże `-/+` — fajna lekcja czytania planu, baza pusta
+      więc nic nie tracimy)
+- [ ] loose end: dnf na bastionie wisiał — sprawdzić `curl -s --max-time 5
+      https://ifconfig.me` (potrzebne do instalacji klienta mysql);
+      do zbadania przy okazji zadania 4
