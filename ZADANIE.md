@@ -9,8 +9,8 @@ ZOSTAJE i rośnie o nowe elementy. Destroy tylko: (a) na koniec sesji nauki /
 przerwę, (b) gdy coś trzeba posprzątać. Po każdym destroy + apply wszystko
 wstaje z powrotem, ale publiczne IP się zmieniają.
 
-Stan na 2026-09-13: zadania 1–3 zaliczone (RDS stoi: prywatne subnety,
-PubliclyAccessible=No, port 3306 z bastiona OK). Następne: **zadanie 4**.
+Stan na 2026-09-15: zadania 1–3 zaliczone (sieć, bastion, RDS). Aktualne:
+**zadanie 4 (S3 + IAM role + CloudWatch)**.
 
 ---
 
@@ -109,6 +109,81 @@ w zadaniu 4; teraz wystarczy zmienna sensitive + tfvars.
 
 ---
 
+## Zadanie 4 (AKTUALNE): S3 + IAM role dla EC2 + alarm CloudWatch
+
+Wzorzec mistrzowski: „instancja dostaje uprawnienia przez IAM role, nie
+przez klucze". Bastion — bez żadnych credentials — nauczy się pisać do S3.
+
+### Krok 0 — porządki
+- [ ] `terraform plan` — no changes (infra stoi) albo apply po destroy
+- [ ] commit zadania 3 (`Add RDS MySQL (task 3)`) jeśli jeszcze nie zrobiony
+- [ ] na bastionie: `curl -s --max-time 5 https://ifconfig.me` — domknąć
+      loose end z zadania 3 (internet → przyda się przy teście CLI)
+
+### Co ma powstać
+- `aws_s3_bucket` — uwaga: nazwa bucketu musi być unikalna **globalnie
+  w całym AWS**, nie tylko na Twoim koncie → zmienna `bucket_name`
+  z defaultem np. `terraform-3tier-twoj-login`; dodaj `force_destroy = true`
+  (przeczytaj w docs po co — ułatwi destroy; zrozum, czemu w produkcji
+  ostrożnie z tym argumentem)
+- `aws_s3_bucket_public_access_block` — wszystkie 4 flagi na true
+  (blokada dostępu publicznego; habit bezpieczeństwa)
+- `aws_s3_bucket_versioning` — konfiguracja jako OSOBNY zasób (ten sam
+  wzorzec, co osobne reguły SG w zadaniu 2)
+- `data "aws_iam_policy_document"` x2:
+  - **trust policy** (kto może wcielić się w rolę): Service
+    `ec2.amazonaws.com`, action `sts:AssumeRole`
+  - **permissions policy** (co rolka może): least privilege na Twoim
+    buckecie — `s3:ListBucket` na ARN bucketu, `s3:GetObject` +
+    `s3:PutObject` na ARN z `/*` (subtelność S3: lista na buckecie,
+    obiekty na `/*` — zapisz sobie tę różnicę)
+- `aws_iam_role` (assume_role_policy z trust), `aws_iam_policy` (policy
+  z permissions), `aws_iam_role_policy_attachment`
+- `aws_iam_instance_profile` + w `aws_instance` bastionu nowy argument
+  `iam_instance_profile` (to będzie `~` — update in place)
+- `aws_cloudwatch_metric_alarm`: CPUUtilization bastionu (namespace
+  `AWS/EC2`, dimension InstanceId, np. >60% przez 2 okresy po 300 s)
+
+### Bloki
+```
+aws_s3_bucket                         x1
+aws_s3_bucket_public_access_block     x1
+aws_s3_bucket_versioning              x1
+aws_iam_role                          x1
+aws_iam_policy                        x1
+aws_iam_role_policy_attachment        x1
+aws_iam_instance_profile              x1
+aws_cloudwatch_metric_alarm           x1
+data "aws_iam_policy_document"        x2
+```
+
+### Workflow + test (to jest serce zadania)
+fmt → validate → plan → apply → **na bastionie, bez żadnego aws configure**:
+```
+aws sts get-caller-identity    # ma pokazać assumed-role/... — tożsamość!
+aws s3 cp /etc/hostname s3://TWOJ-BUCKET/test.txt
+aws s3 ls s3://TWOJ-BUCKET
+```
+AWS CLI sam bierze credentials z instance metadata — o to chodzi w całym
+zadaniu. Żaden klucz nigdy nie leży na dysku instancji.
+
+### Definition of done
+- [ ] plan: 8 to add + 1 to change (bastion `~`) — albo 29 to add od zera
+- [ ] `get-caller-identity` z bastionu zwraca assumed-role (nie anonymous)
+- [ ] `s3 cp` i `s3 ls` działają z bastionu
+- [ ] alarm widoczny w CloudWatch (najpierw INSUFFICIENT_DATA, po ~5 min OK)
+- [ ] destroy na koniec sesji
+
+### Koszt
+S3 = grosze (free tier 5 GB / 12 mies.), IAM darmowe, alarm ~$0.10/mies.
+(1 szt. — pomijalne, ale to pierwszy zasób poza free tier)
+
+### Bonus dla ambitnych
+- SSE: `aws_s3_bucket_server_side_encryption_configuration` (AES256)
+- SNS topic + email w `alarm_actions` — prawdziwy mail przy alarmie
+
+---
+
 ## Pytania kontrolne (bank; użytkownik odkłada na później — wracać przy okazji)
 1. Po co `terraform.tfstate`, co jest w środku, czemu nie na GitHub?
 2. `plan` vs `apply`; co się stanie przy apply bez zmian w kodzie?
@@ -127,6 +202,12 @@ w zadaniu 4; teraz wystarczy zmienna sensitive + tfvars.
 15. Czemu `sensitive = true` NIE wystarcza jako ochrona hasła?
     (wskazówka: co ląduje w terraform.tfstate w plaintext)
 16. Co to final snapshot i czemu `skip_final_snapshot = true` przy nauce?
+17. Czemu EC2 dostaje uprawnienia przez IAM role, a nie przez access key
+    w `aws configure` na instancji?
+18. Trust policy vs permissions policy — która mówi „kto", która „co"?
+19. Czemu nazwa bucketu S3 musi być unikalna globalnie w całym AWS?
+20. Least privilege — czemu własna polityka na 3 akcje lepsza od
+    AmazonS3FullAccess?
 
 ---
 
@@ -137,7 +218,6 @@ w zadaniu 4; teraz wystarczy zmienna sensitive + tfvars.
 - Zasada: na koniec sesji nauki destroy
 
 ## Kolejne zadania
-- **4**: S3 + IAM role dla EC2 + alarm CloudWatch
 - **5**: ALB + Auto Scaling Group + launch template (uwaga na koszty!)
 - **6**: refaktor na moduły + remote state w S3
 

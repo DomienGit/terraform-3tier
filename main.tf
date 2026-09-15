@@ -184,3 +184,64 @@ resource "aws_db_instance" "mysql_db" {
   multi_az               = false
   skip_final_snapshot    = true
 }
+
+resource "aws_s3_bucket" "test_bucket" {
+  bucket = "terraform-3tier-domiendev"
+  force_destroy = true
+
+  tags = {
+    Name        = "My bucket"
+    Environment = "Dev"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "public_access_block_3tier_bucket" {
+  bucket = aws_s3_bucket.test_bucket.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "test_bucket_versioning" {
+  bucket = aws_s3_bucket.test_bucket.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+data "aws_iam_policy_document" "trust_policy" {
+  statement {
+    actions   = ["sts:AssumeRole"]
+    effect = "Allow"
+
+    principals {
+      type = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+
+data "aws_iam_policy_document" "permissions_policy" {
+  statement {
+    actions = [
+      "s3:ListBucket",
+    ]
+
+    resources = [
+      "aws_s3_bucket.test_bucket.arn"
+    ]
+  }
+
+  statement {
+    actions = [
+      "s3:GetObject", "s3:PutObject"
+    ]
+
+    resources = [
+      "${aws_s3_bucket.test_bucket.arn}/*"
+    ]
+  }
+}
+
