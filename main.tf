@@ -20,6 +20,7 @@ resource "aws_instance" "bastion_instance" {
   vpc_security_group_ids      = [aws_security_group.bastion_sg.id]
   subnet_id                   = aws_subnet.subnet-pub-1.id
   associate_public_ip_address = true
+  iam_instance_profile        = aws_iam_instance_profile.test_profile.name
 
   tags = {
     Name    = var.instance_name
@@ -186,7 +187,7 @@ resource "aws_db_instance" "mysql_db" {
 }
 
 resource "aws_s3_bucket" "test_bucket" {
-  bucket = "terraform-3tier-domiendev"
+  bucket        = "terraform-3tier-domiendev"
   force_destroy = true
 
   tags = {
@@ -213,11 +214,11 @@ resource "aws_s3_bucket_versioning" "test_bucket_versioning" {
 
 data "aws_iam_policy_document" "trust_policy" {
   statement {
-    actions   = ["sts:AssumeRole"]
-    effect = "Allow"
+    actions = ["sts:AssumeRole"]
+    effect  = "Allow"
 
     principals {
-      type = "Service"
+      type        = "Service"
       identifiers = ["ec2.amazonaws.com"]
     }
   }
@@ -230,7 +231,7 @@ data "aws_iam_policy_document" "permissions_policy" {
     ]
 
     resources = [
-      "aws_s3_bucket.test_bucket.arn"
+      aws_s3_bucket.test_bucket.arn
     ]
   }
 
@@ -245,3 +246,43 @@ data "aws_iam_policy_document" "permissions_policy" {
   }
 }
 
+
+resource "aws_iam_role" "instance" {
+  name               = "instance_role"
+  path               = "/system/"
+  assume_role_policy = data.aws_iam_policy_document.trust_policy.json
+}
+
+resource "aws_iam_policy" "policy" {
+  name        = "test_policy"
+  path        = "/"
+  description = "My test policy"
+
+  policy = data.aws_iam_policy_document.permissions_policy.json
+}
+
+resource "aws_iam_role_policy_attachment" "bastion_s3" {
+  role      = aws_iam_role.instance.name
+  policy_arn = aws_iam_policy.policy.arn
+}
+
+resource "aws_iam_instance_profile" "test_profile" {
+  name = "test_profile"
+  role = aws_iam_role.instance.name
+}
+
+resource "aws_cloudwatch_metric_alarm" "test_alarm" {
+  alarm_name                = "terraform-test-alarm"
+  comparison_operator       = "GreaterThanOrEqualToThreshold"
+  evaluation_periods        = 2
+  metric_name               = "CPUUtilization"
+  namespace                 = "AWS/EC2"
+  period                    = 300
+  statistic                 = "Average"
+  threshold                 = 80
+  alarm_description         = "This metric monitors ec2 cpu utilization"
+  insufficient_data_actions = []
+  dimensions = {
+    InstanceId = aws_instance.bastion_instance.id
+  }
+}

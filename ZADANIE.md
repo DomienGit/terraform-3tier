@@ -9,8 +9,8 @@ ZOSTAJE i rośnie o nowe elementy. Destroy tylko: (a) na koniec sesji nauki /
 przerwę, (b) gdy coś trzeba posprzątać. Po każdym destroy + apply wszystko
 wstaje z powrotem, ale publiczne IP się zmieniają.
 
-Stan na 2026-09-15: zadania 1–3 zaliczone (sieć, bastion, RDS). Aktualne:
-**zadanie 4 (S3 + IAM role + CloudWatch)**.
+Stan na 2026-09-21: zadania 1–4 zaliczone (sieć, bastion, RDS, S3+IAM+alarm).
+Następne: **zadanie 5 (ALB + ASG)** — uwaga, pierwszy PŁATNY zasób, patrz koszty.
 
 ---
 
@@ -109,7 +109,16 @@ w zadaniu 4; teraz wystarczy zmienna sensitive + tfvars.
 
 ---
 
-## Zadanie 4 (AKTUALNE): S3 + IAM role dla EC2 + alarm CloudWatch
+## Zadanie 4 (ZALICZONE 2026-09-21): S3 + IAM role dla EC2 + alarm CloudWatch
+
+Bucket (globalna nazwa, force_destroy, public_access_block, versioning),
+rola z trust (ec2.amazonaws.com) + least-privilege permissions (ListBucket
+na bucketu, Get/PutObject na /*), instance profile podpięty do bastiona,
+alarm CPUUtilization. Test: `aws sts get-caller-identity` z bastiona zwrócił
+assumed-role, `s3 cp`/`s3 ls` działają bez żadnych kluczy, alarm w stanie OK.
+Lekcje z review: referencja bez cudzysłowów vs `${}` w stringu;
+`aws_iam_role_policy_attachment` (nie policy_attachment), dimensions jako
+mapa `InstanceId = ...`.
 
 Wzorzec mistrzowski: „instancja dostaje uprawnienia przez IAM role, nie
 przez klucze". Bastion — bez żadnych credentials — nauczy się pisać do S3.
@@ -168,11 +177,11 @@ AWS CLI sam bierze credentials z instance metadata — o to chodzi w całym
 zadaniu. Żaden klucz nigdy nie leży na dysku instancji.
 
 ### Definition of done
-- [ ] plan: 8 to add + 1 to change (bastion `~`) — albo 29 to add od zera
-- [ ] `get-caller-identity` z bastionu zwraca assumed-role (nie anonymous)
-- [ ] `s3 cp` i `s3 ls` działają z bastionu
-- [ ] alarm widoczny w CloudWatch (najpierw INSUFFICIENT_DATA, po ~5 min OK)
-- [ ] destroy na koniec sesji
+- [x] plan: 29 to add (od zera po destroy), apply przeszedł
+- [x] `get-caller-identity` z bastionu zwraca assumed-role
+- [x] `s3 cp` i `s3 ls` działają z bastionu
+- [x] alarm w stanie OK (realny datapoint CPU)
+- [ ] destroy na koniec sesji (zasada stała)
 
 ### Koszt
 S3 = grosze (free tier 5 GB / 12 mies.), IAM darmowe, alarm ~$0.10/mies.
@@ -222,11 +231,6 @@ S3 = grosze (free tier 5 GB / 12 mies.), IAM darmowe, alarm ~$0.10/mies.
 - **6**: refaktor na moduły + remote state w S3
 
 ## TODO porządkowe
-- [ ] commit zadania 3: `Add RDS MySQL (task 3)`
-- [ ] drobiazgi kodu: `identifier = "terraform-3tier-db"` + tagi na
-      db_instance i rds_sg — UWAGA: zmiana identifier wymusi replace
-      bazy (plan pokaże `-/+` — fajna lekcja czytania planu, baza pusta
-      więc nic nie tracimy)
-- [ ] loose end: dnf na bastionie wisiał — sprawdzić `curl -s --max-time 5
-      https://ifconfig.me` (potrzebne do instalacji klienta mysql);
-      do zbadania przy okazji zadania 4
+- [ ] commit zadania 4: `Add S3 + IAM role + CloudWatch alarm (task 4)`
+- [ ] opcjonalnie: opisowe nazwy zamiast test_policy/test_profile/
+      test_alarm/example-attach (czytelność w konsoli)
