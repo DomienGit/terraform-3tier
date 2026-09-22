@@ -286,3 +286,73 @@ resource "aws_cloudwatch_metric_alarm" "test_alarm" {
     InstanceId = aws_instance.bastion_instance.id
   }
 }
+
+resource "aws_launch_template" "instance_template" {
+
+  image_id = "data.aws_ami.amazon_linux.id"
+  instance_type = "t3.micro"
+  iam_instance_profile {
+    arn = aws_iam_instance_profile.test_profile.arn
+  }
+  key_name = aws_key_pair.bastion_key.key_name
+  user_data = filebase64("${path.module}/example.sh")
+}
+
+resource "aws_security_group" "alb_sg" {
+  name        = "alb_sg"
+  vpc_id      = aws_vpc.VPC1.id
+
+  tags = {
+    Name = "terraform-3tier"
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "alb_traffic" {
+  security_group_id = aws_security_group.alb_sg.id
+  cidr_ipv4         = 0.0.0.0/0
+  from_port         = 80
+  ip_protocol       = "tcp"
+  to_port           = 80
+}
+
+resource "aws_security_group" "app_sg" {
+  name        = "app_sg"
+  vpc_id      = aws_vpc.VPC1.id
+
+  tags = {
+    Name = "terraform-3tier"
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "alb_to_app_traffic" {
+  security_group_id = aws_security_group.app_sg.id
+  referenced_security_group_id = aws_security_group.alb_sg.id
+  from_port         = 80
+  ip_protocol       = "tcp"
+  to_port           = 80
+}
+
+resource "aws_vpc_security_group_ingress_rule" "bastion_to_app_traffic" {
+  security_group_id = aws_security_group.app_sg.id
+  referenced_security_group_id = aws_security_group.bastion_sg.id
+  from_port         = 22
+  ip_protocol       = "tcp"
+  to_port           = 22
+}
+
+resource "aws_lb" "test_lb" {
+  name               = "test-lb-tf"
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb_sg.id]
+  subnets            = [aws_subnet.public_subnet_1.id, aws_subnet.public_subnet_2.id]
+}
+
+resource "aws_lb_target_group" "test_lb_tg" {
+  name     = "tf-example-lb-tg"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.main.id
+  healt_check {
+    path = "/"
+  }
+}

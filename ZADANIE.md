@@ -9,8 +9,8 @@ ZOSTAJE i rośnie o nowe elementy. Destroy tylko: (a) na koniec sesji nauki /
 przerwę, (b) gdy coś trzeba posprzątać. Po każdym destroy + apply wszystko
 wstaje z powrotem, ale publiczne IP się zmieniają.
 
-Stan na 2026-09-21: zadania 1–4 zaliczone (sieć, bastion, RDS, S3+IAM+alarm).
-Następne: **zadanie 5 (ALB + ASG)** — uwaga, pierwszy PŁATNY zasób, patrz koszty.
+Stan na 2026-09-21: zadania 1–4 zaliczone. Aktualne: **zadanie 5 (ALB+ASG,
+pierwszy płatny zasób — sesja z zegarkiem!)**.
 
 ---
 
@@ -193,6 +193,87 @@ S3 = grosze (free tier 5 GB / 12 mies.), IAM darmowe, alarm ~$0.10/mies.
 
 ---
 
+## Zadanie 5 (AKTUALNE): ALB + Auto Scaling — warstwa aplikacji
+
+**SEJA Z ZEGARKIEM:** ALB płaci się za godziny istnienia (~$0.025/h). Plan:
+kod → validate → review u mnie → apply → testy → **destroy w TEJ sesji**.
+Całość < $1. Nie zostawiamy ALB na noc.
+
+### Decyzja architektoniczna (do opowiedzenia jak na rozmowie)
+Instancje app stawiamy w **publicznych** subnetach — nie mamy NAT Gateway
+(~$33/mies.), a user_data musi ściągnąć nginx z internetu. Bezpieczeństwo
+odrabia SG: port 80 wyłącznie od ALB (SG-to-SG), SSH wyłącznie od bastiona.
+W produkcji: prywatne subnety + NAT (tak było w projekcie java-app). To jest
+kompromis koszt/bezpieczeństwo — świadomy i czasowy.
+
+### Co ma powstać
+- `aws_launch_template` — przepis na klona instancji app:
+  AMI (ten sam data source), t3.micro, `iam_instance_profile` — **reużyj
+  istniejącego profilu** (instancje ASG dostaną S3 bez żadnej akcji!),
+  app SG, klucz bastionowy, `user_data` (patrz niżej)
+- `aws_lb` — application load balancer, internet-facing, w 2 publicznych
+  subnetach, z własnym SG (ingress 80/TCP z 0.0.0.0/0 — to jest drzwi
+  dla świata; egress: ALB musi móc dobić do targetów na 80 — pomyśl:
+  minimalnie czy all; objaw zbyt ciasnego egress = 504 w przeglądarce)
+- `aws_lb_target_group` — HTTP :80, target_type instance,
+  health_check na path "/"
+- `aws_lb_listener` — HTTP :80, forward do target group
+- `aws_autoscaling_group` — 2 publiczne subnety (vpc_zone_identifier),
+  min 2 / max 3 / desired 2, `health_check_type = "ELB"`,
+  `target_group_arns`, zagnieżdżony blok `launch_template`
+  (id + `version = "$Latest"`), tag Name z `propagate_at_launch = true`
+- output: `lb_dns_name`
+
+### user_data — wzór heredoc w HCL
+```
+user_data = <<-EOF
+  #!/bin/bash
+  dnf install -y nginx
+  ...strona index.html z hostnameem instancji...
+  ...echo "boot $(hostname) $(date)" | aws s3 cp - s3://BUCKET/boot-$(hostname).txt
+  systemctl enable --now nginx
+EOF
+```
+Dwie rzeczy ma robić: (1) strony WWW z hostnameem — po to, żeby w teście
+widać było ROTACJĘ między instancjami, (2) boot-log do S3 — dowód, że rola
+działa na instancjach, które ASG postawił SAM (nikt im niczego nie klikał).
+
+### Bloki
+```
+aws_launch_template        x1
+aws_security_group         x2  (alb_sg, app_sg) + reguły:
+                              alb: 80/TCP z 0.0.0.0/0 (+ egress — patrz wyżej)
+                              app: 80/TCP od alb_sg (SG-to-SG!),
+                                   22/TCP od bastion_sg (SG-to-SG!)
+aws_lb                     x1
+aws_lb_target_group        x1
+aws_lb_listener            x1
+aws_autoscaling_group      x1
+```
+
+### Testy (po apply — instancje wstają ~2-3 min z user_data)
+1. `terraform output -raw lb_dns_name` → przeglądarka/curl, kilka razy
+   odśwież → **hostname zmienia się** między 2 instancjami = rotacja ALB
+2. `aws s3 ls s3://terraform-3tier-domiendev/` → boot-logi od obu instancji
+3. (demo self-healing, jeśli zdążysz) Terminate jednej instancji w konsoli
+   → za ~2-3 min ASG stawia replacement → nowy boot-log w bucketcie
+
+### Definition of done
+- [ ] validate + mój review PRZED apply (nie płacimy za poprawki!)
+- [ ] rotacja hostnamów w przeglądarce działa
+- [ ] boot-logi obu instancji w S3
+- [ ] destroy W TEJ SESJI + konsola pusta (też ALB!)
+
+### Koszt (matematyka sesji)
+ALB ~$0.025/h × kilka godzin + 2× t3.micro (free tier) ≈ **całość < $1**,
+pod warunkiem destroy przed końcem dnia.
+
+### Bonus (jeśli czas)
+`aws_autoscaling_policy` (target_tracking, CPU ~30%) + `stress-ng` na
+jednej instancji przez bastiona → obserwuj scale-out w konsoli ASG (~10 min).
+
+---
+
 ## Pytania kontrolne (bank; użytkownik odkłada na później — wracać przy okazji)
 1. Po co `terraform.tfstate`, co jest w środku, czemu nie na GitHub?
 2. `plan` vs `apply`; co się stanie przy apply bez zmian w kodzie?
@@ -217,6 +298,13 @@ S3 = grosze (free tier 5 GB / 12 mies.), IAM darmowe, alarm ~$0.10/mies.
 19. Czemu nazwa bucketu S3 musi być unikalna globalnie w całym AWS?
 20. Least privilege — czemu własna polityka na 3 akcje lepsza od
     AmazonS3FullAccess?
+21. Po co launch template — czemu ASG nie tworzy instancji bezpośrednio?
+22. Health check typu EC2 vs ELB w ASG — kiedy instancja uznawana za chora
+    w każdym z trybów?
+23. Skąd ALB wie, do których instancji kierować ruch? (target group,
+    subnety ASG, AZ)
+24. Czemu w produkcji app siedzi w prywatnych subnetach z NAT, a u nas
+    stoi w publicznych? (kompromis koszt/bezpieczeństwo)
 
 ---
 
@@ -227,7 +315,6 @@ S3 = grosze (free tier 5 GB / 12 mies.), IAM darmowe, alarm ~$0.10/mies.
 - Zasada: na koniec sesji nauki destroy
 
 ## Kolejne zadania
-- **5**: ALB + Auto Scaling Group + launch template (uwaga na koszty!)
 - **6**: refaktor na moduły + remote state w S3
 
 ## TODO porządkowe
