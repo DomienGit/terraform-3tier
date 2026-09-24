@@ -289,13 +289,14 @@ resource "aws_cloudwatch_metric_alarm" "test_alarm" {
 
 resource "aws_launch_template" "instance_template" {
 
-  image_id      = "data.aws_ami.amazon_linux.id"
+  image_id      = data.aws_ami.amazon_linux.id
   instance_type = "t3.micro"
   iam_instance_profile {
     arn = aws_iam_instance_profile.test_profile.arn
   }
   key_name  = aws_key_pair.bastion_key.key_name
   user_data = file("${path.module}/userdata.sh")
+  vpc_security_group_ids      = [aws_security_group.app_sg.id]
 }
 
 resource "aws_security_group" "alb_sg" {
@@ -307,12 +308,18 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
-resource "aws_vpc_security_group_ingress_rule" "alb_traffic" {
+resource "aws_vpc_security_group_ingress_rule" "alb_traffic_ingress" {
   security_group_id = aws_security_group.alb_sg.id
   cidr_ipv4         = "0.0.0.0/0"
   from_port         = 80
   ip_protocol       = "tcp"
   to_port           = 80
+}
+
+resource "aws_vpc_security_group_egress_rule" "alb_traffic_egress" {
+  security_group_id = aws_security_group.alb_sg.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol = "-1"
 }
 
 resource "aws_security_group" "app_sg" {
@@ -338,6 +345,12 @@ resource "aws_vpc_security_group_ingress_rule" "bastion_to_app_traffic" {
   from_port                    = 22
   ip_protocol                  = "tcp"
   to_port                      = 22
+}
+
+resource "aws_vpc_security_group_egress_rule" "app_traffic_egress" {
+  security_group_id = aws_security_group.app_sg.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol = "-1"
 }
 
 resource "aws_lb" "test_lb" {
@@ -385,6 +398,12 @@ resource "aws_autoscaling_group" "test_ag" {
   tag {
     key                 = "Project"
     value               = "terraform-3tier"
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "Name"
+    value               = "app-instance"
     propagate_at_launch = true
   }
 }
