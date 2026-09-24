@@ -262,7 +262,7 @@ resource "aws_iam_policy" "policy" {
 }
 
 resource "aws_iam_role_policy_attachment" "bastion_s3" {
-  role      = aws_iam_role.instance.name
+  role       = aws_iam_role.instance.name
   policy_arn = aws_iam_policy.policy.arn
 }
 
@@ -289,18 +289,18 @@ resource "aws_cloudwatch_metric_alarm" "test_alarm" {
 
 resource "aws_launch_template" "instance_template" {
 
-  image_id = "data.aws_ami.amazon_linux.id"
+  image_id      = "data.aws_ami.amazon_linux.id"
   instance_type = "t3.micro"
   iam_instance_profile {
     arn = aws_iam_instance_profile.test_profile.arn
   }
-  key_name = aws_key_pair.bastion_key.key_name
-  user_data = filebase64("${path.module}/example.sh")
+  key_name  = aws_key_pair.bastion_key.key_name
+  user_data = file("${path.module}/userdata.sh")
 }
 
 resource "aws_security_group" "alb_sg" {
-  name        = "alb_sg"
-  vpc_id      = aws_vpc.VPC1.id
+  name   = "alb_sg"
+  vpc_id = aws_vpc.VPC1.id
 
   tags = {
     Name = "terraform-3tier"
@@ -309,15 +309,15 @@ resource "aws_security_group" "alb_sg" {
 
 resource "aws_vpc_security_group_ingress_rule" "alb_traffic" {
   security_group_id = aws_security_group.alb_sg.id
-  cidr_ipv4         = 0.0.0.0/0
+  cidr_ipv4         = "0.0.0.0/0"
   from_port         = 80
   ip_protocol       = "tcp"
   to_port           = 80
 }
 
 resource "aws_security_group" "app_sg" {
-  name        = "app_sg"
-  vpc_id      = aws_vpc.VPC1.id
+  name   = "app_sg"
+  vpc_id = aws_vpc.VPC1.id
 
   tags = {
     Name = "terraform-3tier"
@@ -325,34 +325,66 @@ resource "aws_security_group" "app_sg" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "alb_to_app_traffic" {
-  security_group_id = aws_security_group.app_sg.id
+  security_group_id            = aws_security_group.app_sg.id
   referenced_security_group_id = aws_security_group.alb_sg.id
-  from_port         = 80
-  ip_protocol       = "tcp"
-  to_port           = 80
+  from_port                    = 80
+  ip_protocol                  = "tcp"
+  to_port                      = 80
 }
 
 resource "aws_vpc_security_group_ingress_rule" "bastion_to_app_traffic" {
-  security_group_id = aws_security_group.app_sg.id
+  security_group_id            = aws_security_group.app_sg.id
   referenced_security_group_id = aws_security_group.bastion_sg.id
-  from_port         = 22
-  ip_protocol       = "tcp"
-  to_port           = 22
+  from_port                    = 22
+  ip_protocol                  = "tcp"
+  to_port                      = 22
 }
 
 resource "aws_lb" "test_lb" {
   name               = "test-lb-tf"
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb_sg.id]
-  subnets            = [aws_subnet.public_subnet_1.id, aws_subnet.public_subnet_2.id]
+  subnets            = [aws_subnet.subnet-pub-1.id, aws_subnet.subnet-pub-2.id]
 }
 
 resource "aws_lb_target_group" "test_lb_tg" {
   name     = "tf-example-lb-tg"
   port     = 80
   protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
-  healt_check {
+  vpc_id   = aws_vpc.VPC1.id
+  health_check {
     path = "/"
+  }
+}
+
+resource "aws_lb_listener" "test_lb_listener" {
+  load_balancer_arn = aws_lb.test_lb.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.test_lb_tg.arn
+  }
+}
+
+resource "aws_autoscaling_group" "test_ag" {
+  name                      = "terraform-3tier-ag"
+  max_size                  = 3
+  min_size                  = 2
+  health_check_type         = "ELB"
+  desired_capacity          = 2
+  vpc_zone_identifier       = [aws_subnet.subnet-pub-1.id, aws_subnet.subnet-pub-2.id]
+  target_group_arns = [aws_lb_target_group.test_lb_tg.arn]
+
+  launch_template {
+    id      = aws_launch_template.instance_template.id
+    version = "$Latest"
+  }
+
+  tag {
+    key                 = "Project"
+    value               = "terraform-3tier"
+    propagate_at_launch = true
   }
 }

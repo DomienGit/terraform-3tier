@@ -17,3 +17,8 @@ output "rds_endpoint" {
   description = "Connection endpoint of the RDS instance"
   value       = aws_db_instance.mysql_db.endpoint
 }
+
+output "lb_dns_name" {
+  description = "DNS of the application load balancer"
+  value       = aws_lb.test_lb.dns_name
+}
